@@ -1,116 +1,86 @@
+from sqlalchemy.orm import Session
+from fastapi import HTTPException
+from database.models.agent import AgentModel
+from AgentWrapper.factories import AgentFactory
+import uuid
 import logging
-from typing import List, Dict, Optional, Any, Callable
-from langchain.agents import create_tool_calling_agent
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain.llms import OpenAI
-from langchain_core.tools import Tool
 
+logger = logging.getLogger("AgentManager")
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("AgentWrapper")
 
-class AgentConfig:
-    def __init__(
-        self,
-        name: str,
-        description: str,
-        tools: List[Tool],
-        llm_config: Dict[str, Any],
-        prompt_template: str,
-        chat_history: Optional[BaseChatMessageHistory] = None,
-        fallback_prompt: Optional[str] = "I'm sorry, I couldn't process your request. Please try again.",
-        verbose: bool = False,
-    ):
-        self.name = name
-        self.description = description
-        self.tools = tools
-        self.llm_config = llm_config
-        self.prompt_template = prompt_template
-        self.chat_history = chat_history
-        self.fallback_prompt = fallback_prompt
-        self.verbose = verbose
+class AgentManager:
+    """Manages the lifecycle of agents, including creation and usage."""
 
-        self._validate()
+    @staticmethod
+    def create_agent_in_db(request: dict, db: Session):
+        """
+        Creates and saves an agent configuration in the database.
 
-    def _validate(self):
-        if not self.name:
-            raise ValueError("AgentConfig must have a 'name'.")
-        if not self.llm_config.get("api_key"):
-            raise ValueError("AgentConfig must include an API key in 'llm_config'.")
-        if not isinstance(self.tools, list) or not all(isinstance(t, Tool) for t in self.tools):
-            raise ValueError("'tools' must be a list of Tool objects.")
-        if not self.prompt_template:
-            raise ValueError("'prompt_template' cannot be empty.")
+        :param request: The request data containing agent configuration.
+        :param db: The database session.
+        :return: A success message.
+        """
+        # Check if the agent name already exists
+        existing_agent = db.query(AgentModel).filter(AgentModel.name == request["name"]).first()
+        if existing_agent:
+            logger.error(f"Agent with name '{request['name']}' already exists.")
+            raise HTTPException(status_code=400, detail=f"Agent with name '{request['name']}' already exists.")
 
-def create_agent(config: AgentConfig):
-    try:
-        llm = OpenAI(
-            model=config.llm_config.get("model", "gpt-4"),
-            temperature=config.llm_config.get("temperature", 0.7),
-            api_key=config.llm_config.get("api_key"),
-            verbose=config.verbose,
+        # Save the agent configuration to the database
+        new_agent = AgentModel(
+            id=str(uuid.uuid4()),
+            name=request["name"],
+            description=request["description"],
+            llm_type=request["llm_type"],
+            llm_config=request["llm_config"],
+            prompt_template=request["prompt_template"],
+            fallback_prompt=request.get("fallback_prompt", "Sorry, something went wrong.")
         )
-        logger.info(f"LLM created for agent '{config.name}'.")
+        db.add(new_agent)
+        db.commit()
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", config.prompt_template)
-        ])
-        logger.info(f"Prompt template set for agent '{config.name}'.")
+        logger.info(f"Agent '{request['name']}' created and saved to the database.")
+        return {"message": f"Agent '{request['name']}' created successfully."}
 
-        agent = create_tool_calling_agent(llm, config.tools, prompt)
-        logger.info(f"Agent '{config.name}' created with tools: {[tool.name for tool in config.tools]}.")
+    @staticmethod
+    def use_agent_from_db(name: str, input_text: str, db: Session):
+        """
+        Retrieves an agent from the database and uses it to process input.
 
-        if config.chat_history:
-            agent = RunnableWithMessageHistory(
-                agent=agent,
-                history=config.chat_history,
-                input_messages_key="input",
-                history_messages_key="chat_history"
-            )
-            logger.info(f"Chat history enabled for agent '{config.name}'.")
+        :param name: The name of the agent.
+        :param input_text: The input to be processed by the agent.
+        :param db: The database session.
+        :return: The response from the agent.
+        """
+        # Retrieve the agent configuration from the database
+        agent_config = db.query(AgentModel).filter(AgentModel.name == name).first()
+        if not agent_config:
+            logger.error(f"Agent '{name}' not found in the database.")
+            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found.")
 
-        return agent
+        # Recreate the agent using the factory
+        try:
+            agent = AgentFactory.create_agent({
+                "name": agent_config.name,
+                "description": agent_config.description,
+                "llm_type": agent_config.llm_type,
+                "llm_config": agent_config.llm_config,
+                "prompt_template": agent_config.prompt_template,
+                "fallback_prompt": agent_config.fallback_prompt
+            })
+            logger.info(f"Agent '{name}' successfully recreated.")
 
-    except Exception as e:
-        logger.error(f"Failed to create agent '{config.name}': {str(e)}")
-        # fallback agent if creation fails
-        return create_fallback_agent(config)
+        except Exception as e:
+            logger.error(f"Failed to recreate agent '{name}': {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to recreate agent '{name}'.")
 
-def create_fallback_agent(config: AgentConfig):
-    """Creates a basic fallback agent with a default response."""
-    def fallback_tool(input_text: str) -> str:
-        return config.fallback_prompt
+        # Use the agent to process the input
+        try:
+            # Assuming `invoke_tool` is the placeholder logic for the agent
+            response = agent.invoke_tool("input", {"input": input_text})  # Adjust this logic as needed
+            logger.info(f"Agent '{name}' processed input successfully.")
+            return {"response": response}
 
-    fallback_prompt = ChatPromptTemplate.from_messages([
-        ("system", "Fallback Agent: A simple response generator."),
-    ])
-    fallback_tool_instance = Tool(name="fallback", func=fallback_tool, description="Fallback tool.")
-    fallback_agent = create_tool_calling_agent(
-        OpenAI(model="gpt-3.5-turbo", temperature=0.7, api_key=config.llm_config.get("api_key")),
-        tools=[fallback_tool_instance],
-        prompt=fallback_prompt
-    )
-    logger.warning(f"Fallback agent created for '{config.name}'.")
-    return fallback_agent
-
-class AgentRegistry:
-    """Registry to manage multiple agents."""
-    def __init__(self):
-        self._agents = {}
-
-    def register(self, name: str, agent):
-        if name in self._agents:
-            logger.warning(f"Agent with name '{name}' is being overwritten.")
-        self._agents[name] = agent
-        logger.info(f"Agent '{name}' registered successfully.")
-
-    def get(self, name: str):
-        if name not in self._agents:
-            raise KeyError(f"Agent '{name}' not found in the registry.")
-        return self._agents[name]
-
-    def list_agents(self):
-        return list(self._agents.keys())
-
-agent_registry = AgentRegistry()
+        except Exception as e:
+            logger.error(f"Agent '{name}' failed to process input: {e}")
+            raise HTTPException(status_code=500, detail=f"Agent '{name}' failed to process input.")
