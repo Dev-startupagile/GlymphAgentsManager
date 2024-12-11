@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, JSON, Text
+from sqlalchemy import Column, String, JSON, ForeignKey, Text
+from sqlalchemy.orm import relationship
 from database.base import Base
 
 class AgentModel(Base):
@@ -10,3 +11,5 @@ class AgentModel(Base):
     llm_config = Column(JSON, nullable=False)
     prompt_template = Column(Text, nullable=False)
     fallback_prompt = Column(Text, nullable=True)
+
+    tools = relationship("ToolModel", back_populates="agent")
