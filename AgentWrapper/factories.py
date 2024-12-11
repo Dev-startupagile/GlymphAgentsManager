@@ -1,10 +1,11 @@
+import logging
 from langchain.llms import OpenAI, Cohere
 from langchain_community.llms import HuggingFaceHub
 from langchain.agents import create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate
-import logging
+from langchain.tools import Tool
 
-logger = logging.getLogger("AgentFactory")
+logger = logging.getLogger("Factory")
 logging.basicConfig(level=logging.INFO)
 
 class LLMFactory:
@@ -43,33 +44,68 @@ class LLMFactory:
             raise ValueError(f"Unsupported LLM type: {llm_type}")
 
 
+
 class AgentFactory:
     """Factory for creating agents."""
 
     @staticmethod
-    def create_agent(config: dict):
+    def create_agent(config: dict, tools: list[dict]):
         """
-        Create an agent using the specified configuration.
+        Create an agent with its tools using the specified configuration.
 
-        :param config: A dictionary containing the agent's configuration:
-            - 'name': Name of the agent.
-            - 'description': Description of the agent.
-            - 'llm_type': The type of LLM ('openai', 'cohere', 'huggingface').
-            - 'llm_config': Configuration for the LLM (API key, model).
-            - 'prompt_template': The prompt template for the agent.
-            - 'fallback_prompt': Fallback response for the agent.
+        :param config: A dictionary containing the agent's configuration.
+        :param tools: A list of tools (flows) with their configuration.
         :return: An instance of the created agent.
         """
         try:
+            # Create the LLM
             llm = LLMFactory.create(config["llm_type"], config["llm_config"])
             logger.info(f"LLM created for agent '{config['name']}'.")
+
+            # Create tools for the agent
+            langchain_tools = []
+            for tool_config in tools:
+                langchain_tools.append(Tool(name=tool_config["name"], func=tool_config["config"]["func"]))
+
+            # Create prompt template
             prompt = ChatPromptTemplate.from_messages([("system", config["prompt_template"])])
             logger.info(f"Prompt template set for agent '{config['name']}'.")
-            agent = create_tool_calling_agent(llm=llm, tools=[], prompt=prompt)  # no tools for now
-            logger.info(f"Agent '{config['name']}' created successfully.")
+
+            # Create the agent
+            agent = create_tool_calling_agent(llm=llm, tools=langchain_tools, prompt=prompt)
+            logger.info(f"Agent '{config['name']}' created successfully with tools.")
 
             return agent
 
         except Exception as e:
             logger.error(f"Error creating agent '{config['name']}': {e}")
             raise
+
+logger = logging.getLogger("ToolFactory")
+logging.basicConfig(level=logging.INFO)
+
+class ToolFactory:
+    """Factory for creating tools."""
+
+    @staticmethod
+    def create_tool(config: dict):
+        """
+        Create a tool instance based on the provided configuration.
+
+        :param config: A dictionary containing the tool's configuration.
+        :return: An instance of the tool.
+        """
+        try:
+            tool = Tool(
+                name=config["name"],
+                description=config.get("description", ""),
+                func=config["config"]["func"],  # The callable function the tool executes
+                return_direct=config["config"].get("return_direct", False),
+            )
+            logger.info(f"Tool '{config['name']}' created successfully.")
+            return tool
+        except Exception as e:
+            logger.error(f"Failed to create tool: {e}")
+            raise ValueError(f"Error creating tool: {str(e)}")
+
+
