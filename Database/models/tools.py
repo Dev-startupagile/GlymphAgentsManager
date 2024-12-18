@@ -1,6 +1,7 @@
-from sqlalchemy import Column, String, JSON, ForeignKey, Text, Boolean
+from sqlalchemy import Column, String, JSON, Text, Boolean
 from sqlalchemy.orm import relationship
 from database.base import Base
+from database.models.agentTools import AgentToolAssociation
 
 class ToolModel(Base):
     __tablename__ = "tools"
@@ -12,5 +13,8 @@ class ToolModel(Base):
     is_active = Column(Boolean, default=True)
     api_key = Column(String, nullable=True)
 
-    webhook = relationship("WebhookModel", back_populates="tool", uselist=False)  # One-to-one relationship
+    agent_tool_associations = relationship("AgentToolAssociation", backref="tool")
 
+    @property
+    def agents(self):
+        return [assoc.agent for assoc in self.agent_tool_associations]

@@ -4,7 +4,6 @@ from database.models.tools import ToolModel
 from database.models.webhooks import WebhookModel
 import uuid
 
-
 class ToolManager:
     """Handles the lifecycle of tools and their associated webhooks."""
 
@@ -12,13 +11,18 @@ class ToolManager:
     def create_tool_in_db(request: dict, db: Session):
         """
         Creates and saves a tool configuration in the database.
+        Expected keys in request: 'name', 'config'.
+        Optional keys: 'description', 'is_active', 'api_key'.
         """
-        # Check if a tool with the same name exists
+        if "name" not in request:
+            raise HTTPException(status_code=400, detail="Tool 'name' is required.")
+        if "config" not in request:
+            raise HTTPException(status_code=400, detail="Tool 'config' is required.")
+
         existing_tool = db.query(ToolModel).filter(ToolModel.name == request["name"]).first()
         if existing_tool:
             raise HTTPException(status_code=400, detail=f"Tool with name '{request['name']}' already exists.")
 
-        # Create and save the tool
         new_tool = ToolModel(
             id=str(uuid.uuid4()),
             name=request["name"],
@@ -27,9 +31,14 @@ class ToolManager:
             is_active=request.get("is_active", True),
             api_key=request.get("api_key"),
         )
-        db.add(new_tool)
-        db.commit()
-        return {"message": f"Tool '{request['name']}' created successfully.", "tool_id": new_tool.id}
+
+        try:
+            db.add(new_tool)
+            db.commit()
+            return {"message": f"Tool '{request['name']}' created successfully.", "tool_id": new_tool.id}
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to create tool: {str(e)}")
 
     @staticmethod
     def create_webhook_for_tool(tool_id: str, request: dict, db: Session):

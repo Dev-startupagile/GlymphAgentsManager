@@ -11,42 +11,80 @@ import copy
 router = APIRouter()
 
 
+from pydantic import BaseModel, Field
+from typing import Dict, Any, Optional
+
+class ToolConfig(BaseModel):
+    func: str = Field("generic_api_call", description="The function that will be called when using this tool.")
+    return_direct: bool = Field(False, description="If True, the agent's response will be returned directly without formatting.")
+    endpoint_url: str = Field(..., description="The API endpoint URL.")
+    method: str = Field("GET", description="HTTP method to use, e.g., GET, POST, PUT.")
+    headers: Dict[str, Any] = Field(default_factory=dict, description="HTTP headers to send with the request.")
+    params: Dict[str, Any] = Field(default_factory=dict, description="Query parameters for the request.")
+    data: Dict[str, Any] = Field(default_factory=dict, description="JSON body for the request if applicable.")
+    input_location: str = Field("params", description="Where to place the user's query. One of 'params', 'data', 'headers', or 'path'.")
+    input_key: str = Field("query", description="The key under which the user's query will be placed.")
+
 class ToolCreateRequest(BaseModel):
-    name: str
-    description: str
-    config: dict
-    webhook_url: str
-    is_active: bool = True
-    api_key: str = None
+    name: str = Field(..., description="The name of the tool.")
+    description: str = Field("", description="A short description of what the tool does.")
+    config: ToolConfig = Field(..., description="Configuration for the tool.")
+    webhook_url: Optional[str] = Field(None, description="An optional webhook URL for external integrations.")
+    is_active: bool = Field(True, description="If False, the tool should not be used.")
+    api_key: Optional[str] = Field(None, description="An optional API key if needed by the tool.")
 
     class Config:
         schema_extra = {
             "example": {
                 "name": "WeatherTool",
                 "description": "Fetches weather information",
-                "config": {"func": "fetch_weather", "return_direct": True},
+                "config": {
+                    "func": "generic_api_call",
+                    "return_direct": True,
+                    "endpoint_url": "https://api.weather.com/v3/weather/conditions",
+                    "method": "GET",
+                    "headers": {"Authorization": "Bearer YOUR_API_KEY"},
+                    "params": {"units": "metric"},
+                    "data": {},
+                    "input_location": "params",
+                    "input_key": "query"
+                },
                 "webhook_url": "https://make.com/webhook",
                 "is_active": True,
                 "api_key": "auth-key",
             }
         }
 
+class ToolUpdateConfig(BaseModel):
+    func: Optional[str] = Field(None, description="The function to call when using this tool.")
+    return_direct: Optional[bool] = Field(None, description="If True, return the agent's response directly.")
+    endpoint_url: Optional[str] = Field(None, description="The updated API endpoint URL.")
+    method: Optional[str] = Field(None, description="The updated HTTP method.")
+    headers: Optional[Dict[str, Any]] = Field(None, description="Updated HTTP headers.")
+    params: Optional[Dict[str, Any]] = Field(None, description="Updated query params.")
+    data: Optional[Dict[str, Any]] = Field(None, description="Updated JSON body.")
+    input_location: Optional[str] = Field(None, description="Where to place the user's query.")
+    input_key: Optional[str] = Field(None, description="The key under which the user's query will be placed.")
 
 class ToolUpdateRequest(BaseModel):
-    description: str = None
-    config: dict = None
-    webhook_url: str = None
-    is_active: bool = None
-    api_key: str = None
+    name: Optional[str] = Field(None, description="Update the tool's name.")
+    description: Optional[str] = Field(None, description="Update the tool's description.")
+    config: Optional[ToolUpdateConfig] = Field(None, description="Partial updates to the tool's configuration.")
+    webhook_url: Optional[str] = Field(None, description="Update the webhook URL if needed.")
+    is_active: Optional[bool] = Field(None, description="Activate/deactivate the tool.")
+    api_key: Optional[str] = Field(None, description="Update the API key if needed.")
 
     class Config:
         schema_extra = {
             "example": {
-                "description": "Updated tool description",
-                "config": {"func": "updated_func"},
-                "webhook_url": "https://updated-webhook.com",
-                "is_active": False,
-                "api_key": "updated-api-key",
+                "name": "WeatherToolUpdated",
+                "description": "Updated description for the weather tool",
+                "config": {
+                    "endpoint_url": "https://api.weather.com/v3/weather/forecast",
+                    "method": "POST",
+                    "params": {"units": "imperial"}
+                },
+                "is_active": False
             }
         }
 
@@ -57,9 +95,8 @@ def create_tool_with_webhook(request: ToolCreateRequest, db: Session = Depends(g
     tool_data = {
         "name": request.name,
         "description": request.description,
-        "config": request.config,
+        "config": request.config.model_dump(),
         "is_active": request.is_active,
-        "api_key": request.api_key,
     }
     tool_response = ToolManager.create_tool_in_db(tool_data, db)
 

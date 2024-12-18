@@ -1,11 +1,6 @@
-import enum
-from sqlalchemy import Column, Integer, String, Boolean, Enum
-from database.base import Base
+from sqlalchemy import Column, Integer, String, Boolean
 from sqlalchemy.orm import relationship
-
-class Role(enum.Enum):
-    ADMIN = "admin"
-    USER = "user"
+from database.base import Base
 
 class User(Base):
     __tablename__ = "users"
@@ -16,4 +11,4 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
 
-    roles = relationship("UserRole", back_populates="user")
+    roles_ = relationship("RoleAssignment", back_populates="user") 

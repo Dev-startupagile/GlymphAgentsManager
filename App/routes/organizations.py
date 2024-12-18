@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import get_db
-from database.models.organization import Organization, OrganizationMember
+from database.connection import get_db
+from database.models.organization import Organization
+from database.models.orgMembers import OrganizationMember
 from database.models.users import User
 
 organizations = APIRouter()

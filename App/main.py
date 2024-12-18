@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from fastapi import FastAPI
-from app.routes.agents import router as agents_router
+from app.routes.agents import agents as agents_router
 from app.routes.auth import auth as auth_router
 from app.routes.organizations import organizations as organizations_router
 from app.routes.users import router as users_router

@@ -1,10 +1,12 @@
-from fastapi import Depends, HTTPException, status, Security
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from database.connection import get_db
+from database.models.users import User
+from database.models.RoleAssignment import RoleAssignment
 from .token import decode_token
 from .crud_token import is_token_revoked
-from database.models.users import User, Role
+from .crud_user import get_user_by_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -27,7 +29,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload"
         )
-    from .crud_user import get_user_by_id
     user = get_user_by_id(db, int(user_id))
     if not user:
         raise HTTPException(
@@ -37,6 +38,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 def admin_required(current_user: User = Depends(get_current_user)):
-    if current_user.role != Role.ADMIN:
+    if not any(role_assignment.role_name == "admin" for role_assignment in current_user.roles):
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
